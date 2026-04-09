@@ -146,6 +146,10 @@ class TestChisq(unittest.TestCase):
                   self.mod_rates, self.exposure)
         self.assertAlmostEqual(f, -38.423, places=3)
 
+        # no background
+        f2 = chisq(self.obs_counts, None, None, 
+                   self.mod_rates, self.exposure)
+        self.assertAlmostEqual(f, -71.04, places=3)
 
 class TestCstat(unittest.TestCase):
 
@@ -1101,3 +1105,23 @@ class TestFixedParameter(unittest.TestCase):
     def test_success(self):
         self.assertTrue(self.fitter.success)
 
+
+class TestNoBackground(unittest.TestCase):
+    """This test is to demonstrate that the 
+    """
+    def setUp(self):
+        self.pha1 = make_first_pha()
+        self.bak1 = None
+        self.pha2 = make_second_pha()
+        self.bak2 = make_second_bak()
+        self.rsp1 = make_rsp('det0')
+        self.rsp2 = make_rsp('det1')
+
+    def test_chi2(self):
+        self.fitter = SpectralFitterChisq([self.pha1], rsp_list=[self.rsp1], method='TNC')
+        self.fitter(PowerLaw())
+                                        
+    def test_chi2_plus(self):
+        self.fitter = SpectralFitterChisq([self.pha1, self.pha2],
+                                          [self.bak1.data, self.bak2.data],
+                                          [self.rsp1, self.rsp2], method='TNC')

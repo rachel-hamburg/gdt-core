@@ -94,14 +94,16 @@ class SpectralFitter:
         rng (Generator, optional): The RNG object
     """
 
-    def __init__(self, pha_list, bkgd_list, rsp_list, statistic,
+    def __init__(self, pha_list, bkgd_list=None, rsp_list=None, statistic=None,
                  channel_masks=None, method='SLSQP', rng=None):
         # check that we have the right numbers of data, backgrounds, responses,
         # and fit masks
         self._num_sets = len(pha_list)
-        if (len(bkgd_list) != self._num_sets) or (
-                len(rsp_list) != self._num_sets):
-            raise ValueError('Number of datasets, backgrounds, and responses must be the same')
+        if len(rsp_list) != self._num_sets:
+            raise ValueError('Number of datasets and responses must be the same')
+        if bkgd_list is not None:
+            if (len(bkgd_list) != self._num_sets):
+                raise ValueError('Number of datasets and backgrounds must be the same')
 
         # set the energy channel masks
         if channel_masks is not None:
@@ -123,21 +125,25 @@ class SpectralFitter:
         self._data = self._apply_masks([pha.data.counts for pha in pha_list])
 
         # extract background rates and variances and apply channel masks
-        self._back_rates = []
-        self._back_var = []
-        for bkgd, pha in zip(bkgd_list, pha_list):
-            if isinstance(bkgd, BackgroundRates):
-                bkgd_spec = bkgd.integrate_time(*pha.time_range)
-            elif isinstance(bkgd, BackgroundSpectrum):
-                bkgd_spec = bkgd
-            elif isinstance(bkgd, Bak):
-                bkgd_spec = bkgd.data
-            else:
-                raise ValueError('Unknown Background object')
-            self._back_rates.append(bkgd_spec.rates)
-            self._back_var.append(bkgd_spec.rate_uncertainty ** 2)
-        self._back_rates = self._apply_masks(self._back_rates)
-        self._back_var = self._apply_masks(self._back_var)
+        if bkgd_list is not None:
+            self._back_rates = []
+            self._back_var = []
+            for bkgd, pha in zip(bkgd_list, pha_list):
+                if isinstance(bkgd, BackgroundRates):
+                    bkgd_spec = bkgd.integrate_time(*pha.time_range)
+                elif isinstance(bkgd, BackgroundSpectrum):
+                    bkgd_spec = bkgd
+                elif isinstance(bkgd, Bak):
+                    bkgd_spec = bkgd.data
+                else:
+                    raise ValueError('Unknown Background object')
+                self._back_rates.append(bkgd_spec.rates)
+                self._back_var.append(bkgd_spec.rate_uncertainty ** 2)
+            self._back_rates = self._apply_masks(self._back_rates)
+            self._back_var = self._apply_masks(self._back_var)
+        else:
+            self._back_rates = np.zeros_like(self._data)
+            self._back_var = np.zeros_like(self._data)
 
         # fitter/function info
         self._stat = statistic
@@ -513,10 +519,13 @@ class SpectralFitter:
             rates = self._rsp[i].drm.fold_spectrum(self._function.fit_eval, self.parameters)
             model_rate = rates[self._chan_masks[i]]
             model_rate[model_rate < 0.0] = 0.0
-            mvar.append(self._back_var[i] / (chanwidths[i]) ** 2
-                        + (model_rate / chanwidths[i] + self._back_rates[i] / chanwidths[i])
-                        / (np.abs(self._exposure[i]) * chanwidths[i]))
 
+            if (self._back_rates[i] == 0).all():
+                mvar.append((model_rate / chanwidths[i]) / (np.abs(self._exposure[i]) * chanwidths[i]))
+            else:
+                mvar.append(self._back_var[i] / (chanwidths[i]) ** 2
+                            + (model_rate / chanwidths[i] + self._back_rates[i] / chanwidths[i])
+                            / (np.abs(self._exposure[i]) * chanwidths[i]))
         return mvar
 
     def residuals(self, sigma=True):
@@ -548,8 +557,11 @@ class SpectralFitter:
         # differential source counts above background
         resid = []
         for i in range(self.num_sets):
-            back_rates = self._back_rates[i] / chanwidths[i]
             rates = self._data[i] / (self._exposure[i] * chanwidths[i])
+            if (self._back_rates[i] == 0).all():
+                back_rates = self._back_rates[i] 
+            else:
+                back_rates = self._back_rates[i] / chanwidths[i]
             resid.append((rates - back_rates) - model[i].rates_per_kev)
 
         # can calculate the residuals as a function of the model uncertainty
@@ -933,7 +945,7 @@ class SpectralFitterChisq(SpectralFitter):
                 are supported at this time.          
     """
 
-    def __init__(self, pha_list, bkgd_list, rsp_list, **kwargs):
+    def __init__(self, pha_list, bkgd_list=None, rsp_list=None, **kwargs):
         super().__init__(pha_list, bkgd_list, rsp_list, chisq, **kwargs)
 
     def _eval_stat(self, set_num, src_model):
@@ -1104,6 +1116,11 @@ def chisq(obs_counts, back_rates, back_var, mod_rates, exposure):
     Returns:    
         (float)
     """
+    if back_rates is None:
+        back_rates = np.zeros_like(obs_counts)
+    if back_var is None:
+        back_var = np.zeros_like(obs_counts)
+
     mask = (obs_counts - back_rates * exposure) > 0
     like = (((obs_counts[mask] - back_rates[mask] * exposure) - mod_rates[mask] * exposure) ** 2
             / (obs_counts[mask] + back_var[mask] * exposure ** 2))
