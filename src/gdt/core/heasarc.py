@@ -236,6 +236,7 @@ class BaseProtocol(AbstractContextManager, ABC, ProgressMixin):
         """(bool): True if the protocol has been initialized"""
         pass
 
+
 class Ftp(BaseProtocol):
     """A class for FTP interactions with a remote archive.
     
@@ -595,6 +596,11 @@ class Aws(Http):
 
         super().__init__(url, start_key, end_key, table_key, progress, context, timeout)
 
+    def _cd(self, path: str):
+        super()._cd(path)
+        if len(self._ls(path)) == 0:
+            raise ValueError(f'{path} is not a valid path')
+    
     def _ls(self, path: str):
         """List the directory contents of an AWS directory associated with
         a data set.
@@ -802,11 +808,14 @@ class FileDownloader(AbstractContextManager):
             dest_dir (str, Path): The directory where the file will be written
             verbose (bool, optional): If True, will output the download status.
                                       Default is True.
+
+        Returns:
+            (Path)
         """
         if url.startswith('ftp'):
-            self._ftp.download_url(url, dest_dir, verbose)
+            return self._ftp.download_url(url, dest_dir, verbose)
         elif url.startswith('http'):
-            self._http.download_url(url, dest_dir, verbose)
+            return self._http.download_url(url, dest_dir, verbose)
         else:
             raise ValueError('url must begin with ftp://, http://, or https://')
 
@@ -818,9 +827,14 @@ class FileDownloader(AbstractContextManager):
             dest_dir (str, Path): The directory where the file will be written
             verbose (bool, optional): If True, will output the download status.
                                       Default is True.
+
+        Returns:
+            (list): File path list
         """
+        files = []
         for url in urls:
-            self.download_url(url, dest_dir, verbose)
+            files.append(self.download_url(url, dest_dir, verbose))
+        return files
 
 
 class BrowseCatalog:
