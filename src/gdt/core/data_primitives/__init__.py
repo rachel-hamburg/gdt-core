@@ -1,6 +1,6 @@
 # CONTAINS TECHNICAL DATA/COMPUTER SOFTWARE DELIVERED TO THE U.S. GOVERNMENT WITH UNLIMITED RIGHTS
 #
-# Contract No.: CA 80MSFC17M0022
+# Contract Nos.: CA 80MSFC17M0022 / 80NSSC24M0035
 # Contractor Name: Universities Space Research Association
 # Contractor Address: 7178 Columbia Gateway Drive, Columbia, MD 21046
 #
@@ -26,34 +26,14 @@
 # implied. See the License for the specific language governing permissions and limitations under the
 # License.
 #
-import os
-from pathlib import Path
-import shutil
+from .bins import *
+from .events import *
+from .intervals import *
+from .ranges import *
+from .responses import *
+from .parameters import *
 
-from importlib.resources import files
-
-_gdt_data = files('gdt.data')
-
-__version__ = '2.2.3'
-
-suite_path = Path(__file__).parent.parent
-
-if 'GDT_BASE' in os.environ:
-    base_path = Path(os.environ['GDT_BASE'])
-else:
-    base_path = Path.home().joinpath('.gammaray_data_tools', __version__)
-
-cache_path = base_path.joinpath('cache')
-
-if 'GDT_DATA' in os.environ:
-    data_path = Path(os.environ['GDT_DATA'])
-else:
-    data_path = base_path.joinpath('test_data')
-
-# Create the data directory and copy a sample spectral data file for tutorial
-data_path.mkdir(parents=True, exist_ok=True)
-_src = _gdt_data / 'specfit.npz'
-_dest = data_path / 'specfit.npz'
-
-if not _dest.exists():
-    shutil.copyfile(_src, _dest)
+__all__ = ['Range', 'TimeRange', 'EnergyRange', 'Intervals', 'Gti', 'Ebounds', 
+           'EventList', 'Bins', 'ExposureBins', 'ChannelBins', 'TimeBins', 
+           'EnergyBins', 'TimeChannelBins', 'TimeEnergyBins', 'ResponseMatrix', 
+           'Parameter']
