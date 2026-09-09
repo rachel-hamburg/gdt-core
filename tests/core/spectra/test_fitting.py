@@ -1111,7 +1111,7 @@ class TestNoBackground(unittest.TestCase):
     """
     def setUp(self):
         self.pha1 = make_first_pha()
-        self.bak1 = None
+        self.bak1 = make_second_bak()
         self.pha2 = make_second_pha()
         self.bak2 = make_second_bak()
         self.rsp1 = make_rsp('det0')
@@ -1123,5 +1123,5 @@ class TestNoBackground(unittest.TestCase):
                                         
     def test_chi2_plus(self):
         self.fitter = SpectralFitterChisq([self.pha1, self.pha2],
-                                          [self.bak1.data, self.bak2.data],
+                                          [None, self.bak2.data],
                                           [self.rsp1, self.rsp2], method='TNC')

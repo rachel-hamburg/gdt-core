@@ -65,7 +65,7 @@ class SpectralFitter:
             The PHA objects containg the count spectrum for each detector
         bkgd_list (list of :class:`~gdt.background.primitives.BackgroundRates`, \
                    list of :class:`~gdt.background.primitives.BackgroundSpectrum`, \
-                   or list of :class:`~gdt.core.pha.Bak`): 
+                   or list of :class:`~gdt.core.pha.Bak`, optional):
             The background rates object, background spectrum, or Bak object
             for each detector.  If given the background rates object, the times
             in the corresponding PHA object will be used for the limits of
@@ -125,25 +125,16 @@ class SpectralFitter:
         self._data = self._apply_masks([pha.data.counts for pha in pha_list])
 
         # extract background rates and variances and apply channel masks
-        if bkgd_list is not None:
-            self._back_rates = []
-            self._back_var = []
-            for bkgd, pha in zip(bkgd_list, pha_list):
-                if isinstance(bkgd, BackgroundRates):
-                    bkgd_spec = bkgd.integrate_time(*pha.time_range)
-                elif isinstance(bkgd, BackgroundSpectrum):
-                    bkgd_spec = bkgd
-                elif isinstance(bkgd, Bak):
-                    bkgd_spec = bkgd.data
-                else:
-                    raise ValueError('Unknown Background object')
+        self._back_rates = []
+        self._back_var = []
+        for bkgd, pha in zip(bkgd_list, pha_list):
+            bkgd_spec = self._get_background_spectrum(bkgd, pha)
+            if bkgd_spec is None:
+                self._back_rates.append(None)
+                self._back_var.append(None)
+            else:
                 self._back_rates.append(bkgd_spec.rates)
-                self._back_var.append(bkgd_spec.rate_uncertainty ** 2)
-            self._back_rates = self._apply_masks(self._back_rates)
-            self._back_var = self._apply_masks(self._back_var)
-        else:
-            self._back_rates = np.zeros_like(self._data)
-            self._back_var = np.zeros_like(self._data)
+                self._back_var.append(bkgd_spec.rate_uncertainty**2)
 
         # fitter/function info
         self._stat = statistic
@@ -431,7 +422,11 @@ class SpectralFitter:
         src_spectra = []
         ulmasks = []
         for i in range(self.num_sets):
-            src_counts = (self._data[i] - self._back_rates[i] * self._exposure[i]) / (self._exposure[i] * chanwidths[i])
+            if self._back_rates[i] is not None:
+                src_counts = (self._data[i] - self._back_rates[i] * self._exposure[i]) \
+                           / (self._exposure[i] * chanwidths[i])
+            else:
+                src_counts = self._data[i] / (self._exposure[i] * chanwidths[i])
 
             ulmask = src_counts < upper_limits_sigma * np.sqrt(mvar[i])
             src_counts[ulmask] = upper_limits_sigma * np.sqrt(mvar[i])[ulmask]
@@ -520,12 +515,13 @@ class SpectralFitter:
             model_rate = rates[self._chan_masks[i]]
             model_rate[model_rate < 0.0] = 0.0
 
-            if (self._back_rates[i] == 0).all():
-                mvar.append((model_rate / chanwidths[i]) / (np.abs(self._exposure[i]) * chanwidths[i]))
-            else:
+            if self._back_rates[i] is not None:
                 mvar.append(self._back_var[i] / (chanwidths[i]) ** 2
                             + (model_rate / chanwidths[i] + self._back_rates[i] / chanwidths[i])
                             / (np.abs(self._exposure[i]) * chanwidths[i]))
+            else:
+                mvar.append((model_rate / chanwidths[i]) / (np.abs(self._exposure[i]) * chanwidths[i]))
+
         return mvar
 
     def residuals(self, sigma=True):
@@ -558,11 +554,11 @@ class SpectralFitter:
         resid = []
         for i in range(self.num_sets):
             rates = self._data[i] / (self._exposure[i] * chanwidths[i])
-            if (self._back_rates[i] == 0).all():
-                back_rates = self._back_rates[i] 
-            else:
+            if self._back_rates[i] is not None:
                 back_rates = self._back_rates[i] / chanwidths[i]
-            resid.append((rates - back_rates) - model[i].rates_per_kev)
+                resid.append((rates - back_rates) - model[i].rates_per_kev)
+            else:
+                resid.append(rates - model[i].rates_per_kev)
 
         # can calculate the residuals as a function of the model uncertainty
         model_var = self.model_variance()
@@ -745,7 +741,7 @@ class SpectralFitter:
         Returns:
             (list of np.array)
         """
-        return [np.asarray(one_list)[one_mask] for one_list, one_mask in zip(a_list, self._chan_masks)]
+        return [np.asarray(one_list)[one_mask] for one_list, one_mask in zip(a_list, self._chan_masks) if one_list is not None]
 
     def _eval_stat(self, set_num, src_model):
         """Evaluate the statistic for a single set. This must be defined by the
@@ -799,6 +795,31 @@ class SpectralFitter:
             stat[i] = self._eval_stat(i, model)
 
         return stat.sum()
+
+    def _get_background_spectrum(self, bkgd, pha):
+        """Get the background spectrum in the correct format
+
+        Args:
+            bkgd (:class:`~gdt.background.primitives.BackgroundRates`, \
+                :class:`~gdt.background.primitives.BackgroundSpectrum`, \
+                :class:`~gdt.core.pha.Bak`, or None):
+                The background rates object, background spectrum, or Bak object
+                for a detector.
+            pha (:class:`~gdt.core.pha.Pha`): 
+                The PHA objects containg the count spectrum for each detector
+        
+        Returns: 
+            (:class:`~gdt.background.primitives.BackgroundSpectrum` or None)
+        """
+        if bkgd is None:
+            return None
+        if isinstance(bkgd, BackgroundRates):
+            return bkgd.integrate_time(*pha.time_range)
+        if isinstance(bkgd, BackgroundSpectrum):
+            return bkgd
+        if isinstance(bkgd, Bak):
+            return bkgd.data
+        raise ValueError('Unknown Background object')
 
     def _hessian(self, params, function):
         """Calculate the Hessian of the fit statistic as a function of the 
