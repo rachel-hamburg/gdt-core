@@ -41,8 +41,8 @@ from gdt.core.data_primitives import EnergyBins
 from gdt.core.pha import Bak
 
 __all__ = ['SpectralFitter', 'SpectralFitterChisq', 'SpectralFitterCstat',
-           'SpectralFitterPgstat', 'SpectralFitterPstat', 'chisq', 'cstat',
-           'pgstat', 'pstat']
+           'SpectralFitterPgstat', 'SpectralFitterPstat', 'SpectralFitterJoint',
+           'chisq', 'cstat', 'pgstat', 'pstat']
 
 
 class SpectralFitter:
@@ -1120,6 +1120,73 @@ class SpectralFitterPstat(SpectralFitter):
         return self._stat(self._data[set_num], src_model,
                           self._exposure[set_num], self._back_rates[set_num])
 
+
+class SpectralFitterJoint(SpectralFitter):
+    """Class for jointly fitting spectra with multiple detectors
+    from different instruments.
+
+    Parameters:
+        specfitters (list of :class:`~gdt.core.spectra.SpectralFitter`):
+            The initialized spectralfit method for each instrument
+
+        method (str, optional):
+            The fitting algorithm, which should be one of the options for
+            scipy.optimize.minimize.
+
+            Note:
+                All solvers, with the exception of 'dogleg' and 'trust-exact',
+                are supported at this time.
+        rng (Generator, optional): The RNG object
+    """
+    def __init__(self, specfitters, method='Nelder-Mead', rng=None):
+        self._specfitters = specfitters
+        self._detectors = [det for s in specfitters for det in s.detectors]
+        self._num_sets = len(self._detectors)
+
+        self._data = [data for s in specfitters for data in s._data]
+        self._rsp = [rsp for s in specfitters for rsp in s._rsp]
+        self._back_rates = [bk_rate for s in specfitters for bk_rate in s._back_rates]
+        self._back_var = [bk_var for s in specfitters for bk_var in s._back_var]
+        self._chan_masks = [chan_mask for s in specfitters for chan_mask in s._chan_masks]
+        self._exposure = [exp for s in specfitters for exp in s._exposure]
+
+        self._function = None
+        self._method = method
+        self._rng = rng or np.random.default_rng()
+        return
+
+
+    def _fold_model(self, function, params):
+        """Folds the model throught the spectrum and calculates the fit
+        statistic
+
+        Note:
+            This is an empty function in the base class, and the inherited class
+            must define this.
+
+        Args:
+            function (:class:`~.functions.Function`): The function object to use
+            params (list): The parameters values
+
+        Returns:
+            (float)
+        """
+        stat = np.zeros(self.num_sets)
+
+        num_set = 0
+        for i in range(len(self._specfitters)):
+            for j in range(len(self._specfitters[i].detectors)):
+
+                # fold model through response and convert to raw model counts
+                rsp = self._specfitters[i]._rsp[j]
+                chan_mask = self._specfitters[i]._chan_masks[j]
+                model = rsp.drm.fold_spectrum(function, params, channel_mask=chan_mask)
+
+                # perform likelihood calculation for one dataset
+                stat[num_set] = self._specfitters[i]._eval_stat(j, model)
+                num_set += 1
+
+        return stat.sum()
 
 # --------------------------------------------------------------------------
 # FIT STATISTICS
